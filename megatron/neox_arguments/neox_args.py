@@ -1225,3 +1225,18 @@ class NeoXArgsTextgen(NeoXArgsTemplate):
 
     NOTE: Requires internet connection
     """
+@dataclass
+class NeoXArgsExperimental(NeoXArgsTemplate):
+    """
+    Experimental Arguments
+    """
+
+    fuse_backward_and_optimizer: bool = False
+    """
+    Fuses the backward pass and optimizer step.
+    It will compute the gradient for each parameter, and then immediately step and zero the optimizer.
+
+    This is useful for reducing memory usage.
+    It is better for some optimizers.
+    It is not always better for your workload and model.
+    """
