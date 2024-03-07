@@ -212,7 +212,6 @@ def pretrain(neox_args):
     print_rank_0("done with setups ...")
     timers.log(["model and optimizer", "train/valid/test data iterators"])
     print_rank_0("training ...")
-
     iteration = neox_args.iteration
     # edge case: save step 0 checkpoint if requested and we're starting from step 0
     if neox_args.save and 0 in neox_args.save_iters and iteration == 0:
@@ -372,7 +371,7 @@ def forward_step(
         return model.eval_batch(data_iterator, return_logits=return_logits)
 
     # Get the batch.
-    if neox_args.memory_profiling and neox_args.it:
+    if neox_args.memory_profiling:
         torch.cuda.nvtx.range_push(f"Get batch")
     if timers is not None:
         timers("batch generator").start()
@@ -605,26 +604,16 @@ def get_optimizer(model, neox_args):
     else:
         raise ValueError(f"Optimizer type {neox_args.optimizer_type} not recognized")
     
-    if neox_args.experimental.fuse_backward_and_optimizer:
-        assert neox_args.optimizer_type.lower() in ["adam", "sgd"], "Only Adam and SGD are supported for fusing backward pass with optimizer"
-        optimized_params = []
+    if neox_args.fuse_backward_and_optimizer:
+        assert neox_args.optimizer_type.lower() in ["adam"], "Only Adam supported for fusing backward pass with optimizer"
+        from megatron.smooth_adam import FusedAdamSmooth
+        optimizer = FusedAdamSmooth(param_groups, weight_decay=neox_args.weight_decay, **neox_args.optimizer["params"])    
+        def optimizer_hook(p) -> None:
+            optimizer.step(p)
+            optimizer.zero_grad(p)
         for pg in param_groups:
             for param in pg["params"]:
-                optimized_params.append(param)
-        optimizers = {param : type(optimizer)([param], **optimizer.defaults) for param in optimized_params}
-        optimizer_hook = lambda p: (optimizers[p].step(), optimizers[p].zero_grad()) if p in optimizers.keys() else None
-        for param in optimized_params:
-            # each param's backward pass will step and zero its optimizer
-            param.register_post_accumulate_grad_hook(optimizer_hook)
-        class NoOptimizer(type(optimizer)):
-            def step(self):
-                pass
-            def zero_grad(self):
-                pass
-        _optimizer = NoOptimizer([param], **optimizer.defaults)
-        _optimizer.__class__ = type(optimizer)
-        optimizer =  _optimizer
-
+                param.register_post_accumulate_grad_hook(optimizer_hook)
     if neox_args.deepspeed:
         # fp16 wrapper is not required for DeepSpeed.
         return optimizer, param_groups

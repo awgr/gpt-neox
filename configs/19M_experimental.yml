@@ -94,8 +94,6 @@
     },
   },
 
-  "experimental": {
-    "fuse_backward_and_optimizer": True
-  }
+  "fuse_backward_and_optimizer": False
 
 }
